@@ -5,7 +5,7 @@ from typing import Optional
 
 from .mapper import map_identity, merge
 from .match import CONFLICT, OVERWRITE_ALLOWED, STRONG, MEDIUM, WEAK, verify_match
-from .normalise import contact_key, normalise_email, normalise_phone
+from .normalise import contact_key, normalise_email, normalise_linkedin, normalise_phone
 
 MIN_AGE_DAYS = 90  # contacts enriched less than ~3 months ago are not re-enriched
 _RANK = {STRONG: 3, MEDIUM: 2, WEAK: 1, CONFLICT: 0}
@@ -31,7 +31,39 @@ def is_recent(last_enriched_at: Optional[datetime], now: datetime, min_age_days:
     return bool(last_enriched_at) and (now - last_enriched_at) < timedelta(days=min_age_days)
 
 
-def lookup_plan(rec: dict):
+class LinkedInLookup:
+    """Lookup by LinkedIn URL. NOT in Datamoon's published API, so it is tried on a best-effort basis:
+    the endpoint and the parameter name are configurable, a 422 makes us try the next parameter name,
+    and a 404/405 (or every name rejected) switches the lookup off for the rest of the job."""
+
+    def __init__(self, endpoint="GetDataByLinkedin", params=("linkedin_url", "linkedin", "linkedinUrl", "url")):
+        self.endpoint = endpoint
+        self.params = list(params)
+        self.disabled_reason = ""
+        self.working_param = ""
+
+    def call(self, client, url: str) -> dict:
+        if self.disabled_reason:
+            return {"status": 404, "ok": False, "identities": [], "remaining": None, "limit": None,
+                    "error": self.disabled_reason}
+        candidates = [self.working_param] if self.working_param else self.params
+        res = None
+        for param in candidates:
+            res = client.call(self.endpoint, {param: url})
+            if res["status"] in (404, 405):
+                self.disabled_reason = f"Datamoon has no LinkedIn lookup at '{self.endpoint}' (HTTP {res['status']})"
+                res["error"] = self.disabled_reason
+                return res
+            if res["status"] == 422:
+                continue                      # wrong parameter name: try the next one
+            self.working_param = param
+            return res
+        self.disabled_reason = f"Datamoon rejected every LinkedIn parameter name tried ({', '.join(candidates)}): {res['error']}"
+        res["error"] = self.disabled_reason
+        return res
+
+
+def lookup_plan(rec: dict, linkedin=None):
     """Lookups in priority order. Name+address (GetDataByPii) is intentionally not
     used yet: its parameters are unverified and it needs a street address + zip."""
     plan = []
@@ -40,7 +72,10 @@ def lookup_plan(rec: dict):
         plan.append(("GetDataByEmail", {"email": email}))
     phone = normalise_phone(rec.get("phone"))
     if phone:
-        plan.append(("GetDataByPhone", {"phone": phone}))  # param name unverified
+        plan.append(("GetDataByPhone", {"phone": phone}))  # parameter name confirmed in Datamoon's docs
+    li = normalise_linkedin(rec.get("linkedin_url"))
+    if li and linkedin is not None:
+        plan.append((linkedin.endpoint, {"__linkedin__": str(rec.get("linkedin_url")).strip()}))
     return plan
 
 
@@ -55,7 +90,8 @@ def best_identity(rec: dict, identities: list):
 
 
 def enrich_record(client, rec: dict, now: datetime, last_enriched_at: Optional[datetime] = None,
-                  cached: Optional[dict] = None, min_age_days: int = MIN_AGE_DAYS) -> EnrichResult:
+                  cached: Optional[dict] = None, min_age_days: int = MIN_AGE_DAYS,
+                  linkedin: Optional[LinkedInLookup] = None) -> EnrichResult:
     key = contact_key(rec)
 
     # 1. recent enough: reuse what we stored last time, no API call
@@ -66,13 +102,13 @@ def enrich_record(client, rec: dict, now: datetime, last_enriched_at: Optional[d
         return EnrichResult(key, "skipped_recent", merged, endpoint="cache", confidence=conf,
                             reasons=["enriched within %d days" % min_age_days], changed=changed, mapped=mapped)
 
-    plan = lookup_plan(rec)
+    plan = lookup_plan(rec, linkedin)
     if not plan:
-        return EnrichResult(key, "no_lookup_key", dict(rec), reasons=["no email or phone"])
+        return EnrichResult(key, "no_lookup_key", dict(rec), reasons=["no email, phone or LinkedIn URL"])
 
     last_error, last_status = "", 0
     for endpoint, payload in plan:
-        res = client.call(endpoint, payload)
+        res = linkedin.call(client, payload["__linkedin__"]) if "__linkedin__" in payload else client.call(endpoint, payload)
         last_status, last_error = res["status"], res["error"]
         if res["status"] in (401, 403):  # bad key: stop immediately
             return EnrichResult(key, "error", dict(rec), endpoint=endpoint, api_status=res["status"],

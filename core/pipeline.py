@@ -21,14 +21,14 @@ class StopJob(Exception):
 
 
 def enrich_all(records: list, client, cache, now, job_id: str = "", on_progress: Optional[Callable] = None,
-               min_age_days: int = 90, max_auth_failures: int = 3):
+               min_age_days: int = 90, max_auth_failures: int = 3, linkedin=None):
     results, counts = [], {"enriched": 0, "skipped_recent": 0, "no_match": 0, "errors": 0, "no_lookup_key": 0}
     auth_failures = 0
     n = len(records)
     for i, rec in enumerate(records):
         cached = cache.get(contact_key(rec)) if cache else None
         res = enrich_record(client, rec, now, last_enriched_at=cached["at"] if cached else None,
-                            cached=cached, min_age_days=min_age_days)
+                            cached=cached, min_age_days=min_age_days, linkedin=linkedin)
         results.append(res)
         counts[{"error": "errors"}.get(res.status, res.status)] += 1
         auth_failures = auth_failures + 1 if res.api_status in (401, 403) else 0

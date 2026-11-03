@@ -32,6 +32,9 @@ class Settings:
         self.max_upload_mb = _int("MAX_UPLOAD_MB", 20)
         self.max_jobs_per_hour = _int("MAX_JOBS_PER_HOUR", 20)   # whole service
         self.max_jobs_per_ip_hour = _int("MAX_JOBS_PER_IP_HOUR", 5)
+        # LinkedIn lookup is not in Datamoon's published API; set DATAMOON_LINKEDIN_ENDPOINT=off to disable it.
+        self.linkedin_endpoint = os.environ.get("DATAMOON_LINKEDIN_ENDPOINT", "GetDataByLinkedin").strip()
+        self.linkedin_params = os.environ.get("DATAMOON_LINKEDIN_PARAMS", "linkedin_url,linkedin,linkedinUrl,url")
         self.workers = _int("WORKERS", 2)
 
     def problems(self):

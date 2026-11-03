@@ -96,7 +96,7 @@ def test_full_job_produces_checked_template_and_everything(client):
     s = client.get(url(f"api/jobs/{job}")).json()
     assert s["status"] == "complete" and s["pct"] == 100
     c = s["counts"]
-    assert (c["rows_in"], c["enriched"], c["no_match"], c["no_lookup_key"]) == (4, 1, 2, 1)
+    assert (c["rows_in"], c["enriched"], c["no_match"], c["no_lookup_key"]) == (4, 1, 3, 0)   # the no-email row is looked up by LinkedIn
     assert c["template_rows"] == 2 and c["qc_flag"] == 1 and c["dropped_no_email"] == 1
     assert set(s["files"]) == {"template.csv", "rejects.csv", "qc_report.csv", "everything.csv"}
 
@@ -120,7 +120,7 @@ def test_second_upload_within_3_months_reuses_cache_without_api_calls(client):
     job2 = post(client).json()["job_id"]
     s = client.get(url(f"api/jobs/{job2}")).json()
     assert len(FakeDatamoon.calls) == first_calls          # nothing sent to Datamoon again
-    assert s["counts"]["skipped_recent"] == 3 and s["counts"]["no_lookup_key"] == 1
+    assert s["counts"]["skipped_recent"] == 4
     t = read_csv(client, job2, "template.csv")
     assert t[t["Email"] == "jane@acme.com"].iloc[0]["Job Level"] == "VP"   # served from the stored enrichment
 
@@ -231,9 +231,45 @@ def test_any_csv_encoding_is_accepted(client):
         assert "García" in set(t[" Last Name "]), enc
 
 
-def test_file_without_email_or_phone_explains_why(client):
-    csv = b"Name,LinkedIn\nJane Doe,https://linkedin.com/in/jane\nJohn Roe,https://linkedin.com/in/john\n"
+def test_file_with_nothing_to_look_up_explains_why(client):
+    csv = b"Name,Company\nJane Doe,Acme\nJohn Roe,X\n"
     r = client.post(url("api/jobs"), files={"file": ("l.csv", csv)}, data={"run_qc": "0"})
     s = client.get(url(f"api/jobs/{r.json()['job_id']}")).json()
     assert s["status"] == "complete" and s["counts"]["no_lookup_key"] == 2
-    assert "email or phone" in s["message"] and FakeDatamoon.calls == []
+    assert "email, phone or LinkedIn" in s["message"] and FakeDatamoon.calls == []
+
+
+LI_CSV = b"LinkedIn\nhttps://www.linkedin.com/in/jane-doe/\nhttps://www.linkedin.com/in/nobody/\n"
+
+
+def test_linkedin_only_file_is_looked_up_by_url(client, monkeypatch):
+    class LI(FakeDatamoon):
+        def call(self, endpoint, payload):
+            FakeDatamoon.calls.append((endpoint, payload))
+            if "linkedin" not in payload:
+                return {"status": 422, "ok": False, "identities": [], "remaining": 9, "limit": 10, "error": "param"}
+            if payload["linkedin"].endswith("jane-doe/"):
+                ident = {"FIRST_NAME": "Jane", "LAST_NAME": "Doe", "WORK_EMAIL": "jane@acme.com", "COMPANY_NAME": "Acme",
+                         "LINKEDIN_URL": ["https://linkedin.com/in/jane-doe"], "JOB_TITLE": "VP Sales"}
+                return {"status": 200, "ok": True, "identities": [ident], "remaining": 9, "limit": 10, "error": ""}
+            return {"status": 200, "ok": True, "identities": [], "remaining": 9, "limit": 10, "error": ""}
+    monkeypatch.setattr(worker, "DatamoonClient", LI)
+    r = client.post(url("api/jobs"), files={"file": ("l.csv", LI_CSV)}, data={"run_qc": "0"})
+    s = client.get(url(f"api/jobs/{r.json()['job_id']}")).json()
+    assert s["counts"]["enriched"] == 1 and s["counts"]["no_match"] == 1
+    t = read_csv(client, r.json()["job_id"], "template.csv")
+    assert list(t["Email"]) == ["jane@acme.com"]          # filled from Datamoon, row with no email is excluded
+    # 'linkedin_url' was rejected once (422); the working name 'linkedin' was then reused for both rows
+    assert [list(p) for _, p in FakeDatamoon.calls].count(["linkedin"]) == 2
+
+
+def test_missing_linkedin_endpoint_switches_lookup_off_for_the_job(client, monkeypatch):
+    class Gone(FakeDatamoon):
+        def call(self, endpoint, payload):
+            FakeDatamoon.calls.append((endpoint, payload))
+            return {"status": 404, "ok": False, "identities": [], "remaining": None, "limit": None, "error": "Not found"}
+    monkeypatch.setattr(worker, "DatamoonClient", Gone)
+    r = client.post(url("api/jobs"), files={"file": ("l.csv", LI_CSV)}, data={"run_qc": "0"})
+    s = client.get(url(f"api/jobs/{r.json()['job_id']}")).json()
+    assert len(FakeDatamoon.calls) == 1                  # asked once, then stopped
+    assert s["status"] == "complete" and "no LinkedIn lookup" in s["message"] and s["counts"]["errors"] == 2

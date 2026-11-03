@@ -7,6 +7,7 @@ import pandas as pd
 
 from .textio import decode_csv
 from core.datamoon import DatamoonClient
+from core.enrich import LinkedInLookup
 from core.normalise import normalise_frame
 from core.pipeline import StopJob, build_outputs, enrich_all
 from core.qc import run_qc
@@ -67,7 +68,11 @@ def run_job(job_id: str, settings, store, cache, client_factory=None, qc_fn=None
                 _status(store, job_id, "running", "enrich", 15 + int(65 * done / total),
                         f"Enriched {done} of {total}", {"rows_in": total, **counts})
 
-        results, counts = enrich_all(records, client, cache, now, job_id=job_id, on_progress=progress)
+        li = None
+        if settings.linkedin_endpoint and settings.linkedin_endpoint.lower() != "off":
+            li = LinkedInLookup(settings.linkedin_endpoint,
+                                [p.strip() for p in settings.linkedin_params.split(",") if p.strip()])
+        results, counts = enrich_all(records, client, cache, now, job_id=job_id, on_progress=progress, linkedin=li)
 
         _status(store, job_id, "running", "publish", 82, "Running the quality check" if qc_on else "Building files", {"rows_in": n, **counts})
         out = build_outputs(
@@ -77,10 +82,11 @@ def run_job(job_id: str, settings, store, cache, client_factory=None, qc_fn=None
             store.write_bytes(job_id, f"outputs/{OUTPUT_FILES[name]}",
                               frame.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"))
         note = out["qc_note"]
+        if li is not None and li.disabled_reason:
+            note = (li.disabled_reason + ". " + note).strip()
         if counts.get("no_lookup_key", 0) == n:
-            note = ("None of the %d rows has an email or phone number that could be recognised, so nothing was sent "
-                    "to Datamoon. Datamoon can only be searched by email or phone. Check that the file has an email "
-                    "column (for example 'Email' or 'Work Email'). %s" % (n, note)).strip()
+            note = ("None of the %d rows has an email, phone or LinkedIn URL that could be recognised, so nothing was "
+                    "sent to Datamoon. Check the column names (for example 'Email', 'Phone', 'LinkedIn'). %s" % (n, note)).strip()
         elif counts.get("no_lookup_key", 0):
             note = ("%d of %d rows had no email or phone and were not looked up. %s" % (counts["no_lookup_key"], n, note)).strip()
         _status(store, job_id, "complete", "publish", 100, note, {"rows_in": n, **counts, **out["counts"]})
