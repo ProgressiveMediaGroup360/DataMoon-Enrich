@@ -137,7 +137,7 @@
     $('j-stage').className = 'stage ' + (failed?'bad':(s.status==='complete'?'ok':''));
     $('j-bar').style.width = (s.status==='complete'?100:(s.pct||2)) + '%';
     $('j-msg').textContent = s.message || '';
-    var c = s.counts || {}, names = {rows_in:'Contacts in',enriched:'Enriched',skipped_recent:'Reused (recent)',no_match:'No match',errors:'Errors',template_rows:'In template file',qc_pass:'QC pass',qc_review:'QC review',qc_flag:'QC flagged',qc_not_run:'Not checked'};
+    var c = s.counts || {}, names = {rows_in:'Contacts in',enriched:'Enriched',skipped_recent:'Reused (recent)',no_match:'No match',no_lookup_key:'No email or phone',errors:'Errors',template_rows:'In template file',qc_pass:'QC pass',qc_review:'QC review',qc_flag:'QC flagged',qc_not_run:'Not checked'};
     $('j-counts').innerHTML = Object.keys(names).filter(function(k){return c[k]!==undefined}).map(function(k){return '<div><b>'+Number(c[k]).toLocaleString()+'</b>'+names[k]+'</div>'}).join('');
     var files = (s.files||[]).slice().sort(function(a,b){return FILE_ORDER.indexOf(a)-FILE_ORDER.indexOf(b)});
     $('j-files').innerHTML = files.map(function(f){return '<a href="'+base+'api/jobs/'+id+'/files/'+f+'">'+(FILES[f]||f)+'</a>'}).join('');

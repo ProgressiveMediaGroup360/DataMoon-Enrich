@@ -76,7 +76,14 @@ def run_job(job_id: str, settings, store, cache, client_factory=None, qc_fn=None
         for name, frame in out["frames"].items():
             store.write_bytes(job_id, f"outputs/{OUTPUT_FILES[name]}",
                               frame.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"))
-        _status(store, job_id, "complete", "publish", 100, out["qc_note"], {"rows_in": n, **counts, **out["counts"]})
+        note = out["qc_note"]
+        if counts.get("no_lookup_key", 0) == n:
+            note = ("None of the %d rows has an email or phone number that could be recognised, so nothing was sent "
+                    "to Datamoon. Datamoon can only be searched by email or phone. Check that the file has an email "
+                    "column (for example 'Email' or 'Work Email'). %s" % (n, note)).strip()
+        elif counts.get("no_lookup_key", 0):
+            note = ("%d of %d rows had no email or phone and were not looked up. %s" % (counts["no_lookup_key"], n, note)).strip()
+        _status(store, job_id, "complete", "publish", 100, note, {"rows_in": n, **counts, **out["counts"]})
     except UserError as e:
         _status(store, job_id, "failed", "prepare", 0, str(e))
     except StopJob as e:

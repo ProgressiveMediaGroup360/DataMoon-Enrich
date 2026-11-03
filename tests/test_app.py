@@ -229,3 +229,11 @@ def test_any_csv_encoding_is_accepted(client):
         assert r.status_code == 200, enc
         t = read_csv(client, r.json()["job_id"], "template.csv")
         assert "García" in set(t[" Last Name "]), enc
+
+
+def test_file_without_email_or_phone_explains_why(client):
+    csv = b"Name,LinkedIn\nJane Doe,https://linkedin.com/in/jane\nJohn Roe,https://linkedin.com/in/john\n"
+    r = client.post(url("api/jobs"), files={"file": ("l.csv", csv)}, data={"run_qc": "0"})
+    s = client.get(url(f"api/jobs/{r.json()['job_id']}")).json()
+    assert s["status"] == "complete" and s["counts"]["no_lookup_key"] == 2
+    assert "email or phone" in s["message"] and FakeDatamoon.calls == []
