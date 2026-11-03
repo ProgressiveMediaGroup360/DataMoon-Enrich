@@ -1,9 +1,11 @@
 """Runs one job in a background thread: read -> normalise -> enrich -> QC -> write outputs."""
+import io
 import logging
 from datetime import datetime, timezone
 
 import pandas as pd
 
+from .textio import decode_csv
 from core.datamoon import DatamoonClient
 from core.normalise import normalise_frame
 from core.pipeline import StopJob, build_outputs, enrich_all
@@ -33,7 +35,7 @@ def read_input(store, job_id: str) -> pd.DataFrame:
             p = store.path(job_id, rel)
             try:
                 if ext == "csv":
-                    return pd.read_csv(p, dtype=str, encoding="utf-8-sig", keep_default_na=False)
+                    return pd.read_csv(io.StringIO(decode_csv(p.read_bytes())), dtype=str, keep_default_na=False)
                 return pd.read_excel(p, dtype=str).fillna("")
             except Exception:
                 raise UserError("The file could not be read. Check that it is a valid CSV or Excel file.")

@@ -220,3 +220,12 @@ def test_quality_check_switched_off_only_enriches(client, monkeypatch):
 def test_quality_check_on_still_requires_specs(client):
     r = client.post(url("api/jobs"), files={"file": ("a.csv", CSV)}, data={"run_qc": "1"})
     assert r.status_code == 400
+
+
+def test_any_csv_encoding_is_accepted(client):
+    raw = "First Name,Last Name,Work Email,Company\nJosé,García,jane@acme.com,Acme\n"
+    for enc in ("cp1252", "utf-16", "utf-8"):
+        r = client.post(url("api/jobs"), files={"file": ("l.csv", raw.encode(enc))}, data={"run_qc": "0"})
+        assert r.status_code == 200, enc
+        t = read_csv(client, r.json()["job_id"], "template.csv")
+        assert "García" in set(t[" Last Name "]), enc

@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from .cache import EnrichmentCache
 from .config import settings
 from .store import JobStore
+from .textio import decode_csv
 from . import worker
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -123,10 +124,7 @@ async def create_job(token: str, request: Request, file: UploadFile = File(...),
     if len(data) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(413, f"File is larger than {settings.max_upload_mb} MB.")
     if ext == "csv":
-        try:
-            rows = sum(1 for _ in csv.reader(io.StringIO(data.decode("utf-8-sig")))) - 1
-        except UnicodeDecodeError:
-            raise HTTPException(400, "CSV must be UTF-8 encoded.")
+        rows = sum(1 for r in csv.reader(io.StringIO(decode_csv(data))) if any(c.strip() for c in r)) - 1
         if rows < 1:
             raise HTTPException(400, "The file has no data rows.")
         if rows > settings.max_rows:
