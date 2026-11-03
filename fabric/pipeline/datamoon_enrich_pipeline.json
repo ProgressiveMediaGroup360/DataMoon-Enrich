@@ -1,0 +1,56 @@
+{
+  "name": "DataMoon_Enrich_Pipeline",
+  "description": "prepare -> enrich -> publish. Started by the Railway app with job_id and mode.",
+  "properties": {
+    "activities": [
+      {
+        "name": "01_Prepare",
+        "type": "TridentNotebook",
+        "dependsOn": [],
+        "policy": { "timeout": "0.02:00:00", "retry": 0 },
+        "typeProperties": {
+          "notebookId": "__REPLACE_WITH_NOTEBOOK_01_ID__",
+          "workspaceId": "__REPLACE_WITH_WORKSPACE_ID__",
+          "parameters": {
+            "job_id": { "value": { "value": "@pipeline().parameters.job_id", "type": "Expression" }, "type": "string" },
+            "mode":   { "value": { "value": "@pipeline().parameters.mode",   "type": "Expression" }, "type": "string" },
+            "max_rows": { "value": { "value": "@pipeline().parameters.max_rows", "type": "Expression" }, "type": "int" }
+          }
+        }
+      },
+      {
+        "name": "02_Enrich",
+        "type": "TridentNotebook",
+        "dependsOn": [ { "activity": "01_Prepare", "dependencyConditions": ["Succeeded"] } ],
+        "policy": { "timeout": "0.12:00:00", "retry": 0 },
+        "typeProperties": {
+          "notebookId": "__REPLACE_WITH_NOTEBOOK_02_ID__",
+          "workspaceId": "__REPLACE_WITH_WORKSPACE_ID__",
+          "parameters": {
+            "job_id": { "value": { "value": "@pipeline().parameters.job_id", "type": "Expression" }, "type": "string" }
+          }
+        }
+      },
+      {
+        "name": "03_Publish",
+        "type": "TridentNotebook",
+        "dependsOn": [ { "activity": "02_Enrich", "dependencyConditions": ["Succeeded"] } ],
+        "policy": { "timeout": "0.02:00:00", "retry": 0 },
+        "typeProperties": {
+          "notebookId": "__REPLACE_WITH_NOTEBOOK_03_ID__",
+          "workspaceId": "__REPLACE_WITH_WORKSPACE_ID__",
+          "parameters": {
+            "job_id": { "value": { "value": "@pipeline().parameters.job_id", "type": "Expression" }, "type": "string" },
+            "mode":   { "value": { "value": "@pipeline().parameters.mode",   "type": "Expression" }, "type": "string" }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "job_id":   { "type": "string", "defaultValue": "" },
+      "mode":     { "type": "string", "defaultValue": "upload" },
+      "max_rows": { "type": "int",    "defaultValue": 100 }
+    },
+    "annotations": ["DataMoon-Enrich"]
+  }
+}

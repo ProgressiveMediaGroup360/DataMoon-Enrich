@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>DataMoon Enrich</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--muted:#5b6472;--line:#dfe3ea;--accent:#1f5eff;--accent-ink:#fff;--ok:#157347;--bad:#b42318}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1217;--card:#171b22;--ink:#e8ebf0;--muted:#9aa4b2;--line:#2a313c;--accent:#6b8dff;--accent-ink:#0b0f1a;--ok:#4cc38a;--bad:#ff7b72}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:760px;margin:0 auto;padding:24px 16px 64px}
+  h1{font-size:1.4rem;margin:0 0 4px} h2{font-size:1rem;margin:24px 0 2px} .sub{color:var(--muted);margin:0 0 20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+  label{display:block;font-weight:600;margin:14px 0 4px}
+  .hint{color:var(--muted);font-size:.875rem;font-weight:400}
+  input[type=text],textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+  textarea{min-height:64px;resize:vertical}
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:28px 16px;text-align:center;color:var(--muted);cursor:pointer}
+  .drop.over{border-color:var(--accent);color:var(--ink)} .drop strong{color:var(--ink)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px} @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  button.primary{margin-top:22px;background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;font:inherit;font-weight:600;padding:11px 18px;cursor:pointer}
+  button.primary:disabled{opacity:.5;cursor:not-allowed}
+  .err{color:var(--bad);margin-top:12px;min-height:1.2em}
+  #job{display:none;margin-top:20px}
+  .bar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin:10px 0}
+  .bar>div{height:100%;width:0;background:var(--accent);transition:width .4s}
+  .stage{font-weight:600} .msg{color:var(--muted);font-size:.9rem}
+  .counts{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:14px 0}
+  .counts div{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:.85rem;color:var(--muted)}
+  .counts b{display:block;font-size:1.15rem;color:var(--ink)}
+  .files a{display:inline-block;margin:6px 8px 0 0;padding:9px 14px;border:1px solid var(--line);border-radius:8px;color:var(--ink);text-decoration:none;font-weight:600}
+  .files a:hover{border-color:var(--accent)} .ok{color:var(--ok)} .bad{color:var(--bad)}
+  .note{font-size:.85rem;color:var(--muted);margin-top:16px}
+</style>
+</head>
+<body>
+<main>
+  <h1>DataMoon Enrich</h1>
+  <p class="sub">Drop a contact file. It is enriched with Datamoon, checked against your specs, and returned as the PMG lead template. Up to __MAX_ROWS__ contacts per file.</p>
+
+  <section class="card">
+    <form id="f">
+      <label for="file">Contact file <span class="hint">(.csv or .xlsx, UTF-8)</span></label>
+      <div class="drop" id="drop" tabindex="0"><strong id="fname">Drop a file here</strong><br>or click to choose</div>
+      <input type="file" id="file" accept=".csv,.xlsx" hidden>
+      <label for="client">Client / list name <span class="hint">(optional)</span></label>
+      <input type="text" id="client" maxlength="100">
+
+      <h2>Specs for the quality check</h2>
+      <p class="hint" style="margin:0">Fill in at least one. Each spec becomes a check on every row; leave out what doesn't apply.</p>
+      <div class="grid">
+        <div><label for="geography">Geography</label><input type="text" id="geography" placeholder="e.g. USA"></div>
+        <div><label for="industry">Industry</label><input type="text" id="industry" placeholder="e.g. Construction &amp; Real Estate"></div>
+        <div><label for="job_title">Job Title</label><input type="text" id="job_title" placeholder="e.g. CEO, Owner, CFO, VP Finance"></div>
+        <div><label for="job_function">Job Function</label><input type="text" id="job_function" placeholder="e.g. Finance, IT, Operations"></div>
+        <div><label for="company_revenue">Company Revenue</label><input type="text" id="company_revenue" placeholder="e.g. $50M-$500M"></div>
+        <div><label for="employee_size">Employee Size</label><input type="text" id="employee_size" placeholder="e.g. 51-1,000"></div>
+      </div>
+      <label for="other_criteria">Other criteria <span class="hint">(one per line as Field: details)</span></label>
+      <textarea id="other_criteria" placeholder="Seniority: Director and above"></textarea>
+
+      <button class="primary" type="submit" id="go">Enrich and check</button>
+      <div class="err" id="err" role="alert"></div>
+    </form>
+  </section>
+
+  <section class="card" id="job" aria-live="polite">
+    <div class="stage" id="j-stage">Queued</div>
+    <div class="bar"><div id="j-bar"></div></div>
+    <div class="msg" id="j-msg"></div>
+    <div class="counts" id="j-counts"></div>
+    <div class="files" id="j-files"></div>
+    <p class="note">Keep this page open, or bookmark it: the job continues without you and results stay available at this address for a few days.</p>
+  </section>
+</main>
+
+<script>
+(function(){
+  var base = location.pathname.replace(/\/?$/, '/');   // /s/<token>/
+  var $ = function(id){return document.getElementById(id)};
+  var LABELS = {queued:'Queued',prepare:'Reading the file',enrich:'Enriching with Datamoon',publish:'Quality check and building files',complete:'Done',error:'Failed'};
+  var FILES = {'template.csv':'Template file (checked)','template_unchecked.csv':'Template file (NOT quality-checked)','everything.csv':'Enriched file (everything)','rejects.csv':'Rejected by QC','qc_report.csv':'QC report'};
+  var FILE_ORDER = ['template.csv','template_unchecked.csv','qc_report.csv','everything.csv','rejects.csv'];
+  var picked = null, timer = null;
+
+  var drop = $('drop'), file = $('file');
+  function setFile(f){ picked = f; $('fname').textContent = f ? f.name : 'Drop a file here'; }
+  drop.onclick = function(){file.click()};
+  drop.onkeydown = function(e){ if(e.key==='Enter'||e.key===' '){e.preventDefault();file.click();} };
+  file.onchange = function(){setFile(file.files[0])};
+  ['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('over')})});
+  ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('over')})});
+  drop.addEventListener('drop',function(e){ if(e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
+
+  $('f').onsubmit = async function(e){
+    e.preventDefault();
+    $('err').textContent = '';
+    if(!picked){ $('err').textContent = 'Choose a file first.'; return; }
+    var fd = new FormData();
+    fd.append('file', picked); fd.append('client_name', $('client').value);
+    ['geography','industry','job_title','job_function','company_revenue','employee_size','other_criteria'].forEach(function(k){ fd.append(k, $(k).value); });
+    $('go').disabled = true;
+    try{
+      var r = await fetch(base+'api/jobs', {method:'POST', body:fd});
+      var j = await r.json().catch(function(){return {}});
+      if(!r.ok) throw new Error(j.detail || ('Request failed ('+r.status+')'));
+      track(j.job_id);
+    }catch(err){ $('err').textContent = err.message; $('go').disabled = false; }
+  };
+
+  function track(id){
+    history.replaceState(null,'',base+'?job='+id);
+    $('job').style.display = 'block'; $('job').scrollIntoView({behavior:'smooth'});
+    clearInterval(timer);
+    var poll = async function(){
+      try{
+        var r = await fetch(base+'api/jobs/'+id);
+        if(r.status===404){ clearInterval(timer); $('j-stage').textContent='Not found'; $('j-msg').textContent='This job no longer exists (results are kept for a few days).'; $('go').disabled=false; return; }
+        var s = await r.json(); render(id, s);
+        if(s.status==='complete' || s.status==='failed'){ clearInterval(timer); $('go').disabled = false; }
+      }catch(e){ $('j-msg').textContent = 'Connection problem - retrying...'; }
+    };
+    poll(); timer = setInterval(poll, 4000);
+  }
+
+  function render(id, s){
+    var failed = s.status==='failed';
+    $('j-stage').textContent = failed ? 'Failed' : (LABELS[s.status==='complete'?'complete':s.stage] || 'Working');
+    $('j-stage').className = 'stage ' + (failed?'bad':(s.status==='complete'?'ok':''));
+    $('j-bar').style.width = (s.status==='complete'?100:(s.pct||2)) + '%';
+    $('j-msg').textContent = s.message || '';
+    var c = s.counts || {}, names = {rows_in:'Contacts in',enriched:'Enriched',skipped_recent:'Reused (recent)',no_match:'No match',errors:'Errors',template_rows:'In template file',qc_pass:'QC pass',qc_review:'QC review',qc_flag:'QC flagged',qc_not_run:'Not checked'};
+    $('j-counts').innerHTML = Object.keys(names).filter(function(k){return c[k]!==undefined}).map(function(k){return '<div><b>'+Number(c[k]).toLocaleString()+'</b>'+names[k]+'</div>'}).join('');
+    var files = (s.files||[]).slice().sort(function(a,b){return FILE_ORDER.indexOf(a)-FILE_ORDER.indexOf(b)});
+    $('j-files').innerHTML = files.map(function(f){return '<a href="'+base+'api/jobs/'+id+'/files/'+f+'">'+(FILES[f]||f)+'</a>'}).join('');
+  }
+
+  var m = location.search.match(/job=([0-9a-f-]{36})/);
+  if(m) track(m[1]);
+})();
+</script>
+</body>
+</html>
