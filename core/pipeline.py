@@ -41,15 +41,19 @@ def enrich_all(records: list, client, cache, now, job_id: str = "", on_progress:
     return results, counts
 
 
-def build_outputs(originals: list, results: list, qc_fn: Callable, store_raw_json: bool = True) -> dict:
+def build_outputs(originals: list, results: list, qc_fn: Callable, store_raw_json: bool = True,
+                  qc_enabled: bool = True) -> dict:
     """Return {"frames": {name: DataFrame}, "counts": {...}, "qc_note": str}."""
     merged = [r.merged for r in results]
     candidates, dropped_no_email, dropped_dups = template_candidates(merged)
     rows = [to_template_row(c) for c in candidates]
 
     qc_note = ""
+    if not qc_enabled:   # the person switched the quality check off: deliver the enriched template as is
+        qc = [{"overall": NOT_RUN, "checks": {}} for _ in rows]
+        qc_note = "Quality check was switched off."
     try:
-        qc = qc_fn(rows) if rows else []
+        qc = qc if not qc_enabled else (qc_fn(rows) if rows else [])
     except Exception as e:  # QC service down / bad reply: deliver the enriched data, say QC did not run
         qc = [{"overall": NOT_RUN, "checks": {}} for _ in rows]
         qc_note = f"The quality check service could not be reached ({type(e).__name__})."
@@ -87,8 +91,10 @@ def build_outputs(originals: list, results: list, qc_fn: Callable, store_raw_jso
         "qc_report": qc_report_frame(ok + rejects + not_run),
         "everything": pd.DataFrame(everything),
     }
-    if not_run:
+    if not qc_enabled:
+        frames = {"template": template_frame(not_run), "everything": frames["everything"]}
+    elif not_run:
         frames["template_unchecked"] = template_frame(not_run)
-    counts = {"template_rows": len(ok), "qc_pass": n_by(PASS), "qc_review": n_by(REVIEW), "qc_flag": n_by(FLAG),
-              "qc_not_run": len(not_run), "dropped_no_email": dropped_no_email, "dropped_duplicates": dropped_dups}
+    counts = {"template_rows": len(ok) if qc_enabled else len(not_run), "qc_pass": n_by(PASS), "qc_review": n_by(REVIEW), "qc_flag": n_by(FLAG),
+              "qc_not_run": len(not_run) if qc_enabled else 0, "dropped_no_email": dropped_no_email, "dropped_duplicates": dropped_dups}
     return {"frames": frames, "counts": counts, "qc_note": qc_note}

@@ -32,6 +32,8 @@
   .counts b{display:block;font-size:1.15rem;color:var(--ink)}
   .files a{display:inline-block;margin:6px 8px 0 0;padding:9px 14px;border:1px solid var(--line);border-radius:8px;color:var(--ink);text-decoration:none;font-weight:600}
   .files a:hover{border-color:var(--accent)} .ok{color:var(--ok)} .bad{color:var(--bad)}
+  .switch{display:flex;align-items:center;gap:10px;margin:22px 0 0;cursor:pointer}.switch input{width:18px;height:18px}
+  #specs[hidden]{display:none}
   .note{font-size:.85rem;color:var(--muted);margin-top:16px}
 </style>
 </head>
@@ -48,6 +50,8 @@
       <label for="client">Client / list name <span class="hint">(optional)</span></label>
       <input type="text" id="client" maxlength="100">
 
+      <label class="switch" for="run_qc"><input type="checkbox" id="run_qc" checked> Run the quality check <span class="hint">(turn off to only enrich)</span></label>
+      <div id="specs">
       <h2>Specs for the quality check</h2>
       <p class="hint" style="margin:0">Fill in at least one. Each spec becomes a check on every row; leave out what doesn't apply.</p>
       <div class="grid">
@@ -60,6 +64,7 @@
       </div>
       <label for="other_criteria">Other criteria <span class="hint">(one per line as Field: details)</span></label>
       <textarea id="other_criteria" placeholder="Seniority: Director and above"></textarea>
+      </div>
 
       <button class="primary" type="submit" id="go">Enrich and check</button>
       <div class="err" id="err" role="alert"></div>
@@ -81,9 +86,10 @@
   var base = location.pathname.replace(/\/?$/, '/');   // /s/<token>/
   var $ = function(id){return document.getElementById(id)};
   var LABELS = {queued:'Queued',prepare:'Reading the file',enrich:'Enriching with Datamoon',publish:'Quality check and building files',complete:'Done',error:'Failed'};
-  var FILES = {'template.csv':'Template file (checked)','template_unchecked.csv':'Template file (NOT quality-checked)','everything.csv':'Enriched file (everything)','rejects.csv':'Rejected by QC','qc_report.csv':'QC report'};
+  var FILES = {'template.csv':'Template file','template_unchecked.csv':'Template file (NOT quality-checked)','everything.csv':'Enriched file (everything)','rejects.csv':'Rejected by QC','qc_report.csv':'QC report'};
   var FILE_ORDER = ['template.csv','template_unchecked.csv','qc_report.csv','everything.csv','rejects.csv'];
   var picked = null, timer = null;
+  $('run_qc').onchange = function(){ $('specs').hidden = !this.checked; $('go').textContent = this.checked ? 'Enrich and check' : 'Enrich'; };
 
   var drop = $('drop'), file = $('file');
   function setFile(f){ picked = f; $('fname').textContent = f ? f.name : 'Drop a file here'; }
@@ -99,7 +105,7 @@
     $('err').textContent = '';
     if(!picked){ $('err').textContent = 'Choose a file first.'; return; }
     var fd = new FormData();
-    fd.append('file', picked); fd.append('client_name', $('client').value);
+    fd.append('file', picked); fd.append('client_name', $('client').value); fd.append('run_qc', $('run_qc').checked ? '1' : '0');
     ['geography','industry','job_title','job_function','company_revenue','employee_size','other_criteria'].forEach(function(k){ fd.append(k, $(k).value); });
     $('go').disabled = true;
     try{

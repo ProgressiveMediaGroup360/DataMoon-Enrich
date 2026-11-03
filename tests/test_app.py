@@ -201,3 +201,22 @@ def test_interrupted_jobs_are_marked_failed_on_start(tmp_path):
     settings.data_dir = str(tmp_path)
     main.state()
     assert json.loads(st.read_bytes("j1", "status.json"))["status"] == "failed"
+
+
+def test_quality_check_switched_off_only_enriches(client, monkeypatch):
+    def must_not_run(*a, **k):
+        raise AssertionError("QC must not be called")
+    monkeypatch.setattr(worker, "run_qc", must_not_run)
+    r = client.post(url("api/jobs"), files={"file": ("list.csv", CSV)}, data={"run_qc": "0"})   # no specs needed
+    assert r.status_code == 200
+    s = client.get(url(f"api/jobs/{r.json()['job_id']}")).json()
+    assert s["status"] == "complete" and "switched off" in s["message"]
+    assert set(s["files"]) == {"template.csv", "everything.csv"}
+    assert s["counts"]["template_rows"] == 3 and s["counts"]["qc_not_run"] == 0
+    t = read_csv(client, r.json()["job_id"], "template.csv")
+    assert set(t["Email"]) == {"jane@acme.com", "bad@x.com", "lukasz@x.pl"}
+
+
+def test_quality_check_on_still_requires_specs(client):
+    r = client.post(url("api/jobs"), files={"file": ("a.csv", CSV)}, data={"run_qc": "1"})
+    assert r.status_code == 400

@@ -45,6 +45,7 @@ def run_job(job_id: str, settings, store, cache, client_factory=None, qc_fn=None
     qc_fn = qc_fn or run_qc
     try:
         spec_text = store.read_bytes(job_id, "input/spec_text.txt").decode("utf-8")
+        qc_on = bool(spec_text.strip())     # no specs saved = quality check switched off
         _status(store, job_id, "running", "prepare", 8, "Reading the file")
         raw = read_input(store, job_id)
         if len(raw) > settings.max_rows:
@@ -66,9 +67,9 @@ def run_job(job_id: str, settings, store, cache, client_factory=None, qc_fn=None
 
         results, counts = enrich_all(records, client, cache, now, job_id=job_id, on_progress=progress)
 
-        _status(store, job_id, "running", "publish", 82, "Running the quality check", {"rows_in": n, **counts})
+        _status(store, job_id, "running", "publish", 82, "Running the quality check" if qc_on else "Building files", {"rows_in": n, **counts})
         out = build_outputs(
-            records, results,
+            records, results, qc_enabled=qc_on,
             qc_fn=lambda rows: qc_fn(settings.qc_url, settings.qc_token, job_id, spec_text, TEMPLATE_COLUMNS, rows))
         for name, frame in out["frames"].items():
             store.write_bytes(job_id, f"outputs/{OUTPUT_FILES[name]}",

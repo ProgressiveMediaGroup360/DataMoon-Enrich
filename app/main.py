@@ -103,14 +103,17 @@ def page(token: str):
 async def create_job(token: str, request: Request, file: UploadFile = File(...), client_name: str = Form(""),
                      geography: str = Form(""), industry: str = Form(""), job_title: str = Form(""),
                      job_function: str = Form(""), company_revenue: str = Form(""), employee_size: str = Form(""),
-                     other_criteria: str = Form("")):
+                     other_criteria: str = Form(""), run_qc: str = Form("1")):
     _guard(token)
     if settings.problems():
         raise HTTPException(503, "The service is not fully configured yet.")
     spec_text = compose_spec(dict(geography=geography, industry=industry, job_title=job_title,
                                   job_function=job_function, company_revenue=company_revenue,
                                   employee_size=employee_size, other_criteria=other_criteria))
-    if not spec_text:
+    qc_on = run_qc.strip().lower() not in ("0", "false", "off", "no")
+    if not qc_on:
+        spec_text = ""
+    elif not spec_text:
         raise HTTPException(400, "Add at least one spec (for example Geography or Job Title): the quality check needs something to check against.")
     name = (file.filename or "").lower()
     ext = name.rsplit(".", 1)[-1] if "." in name else ""
@@ -137,7 +140,7 @@ async def create_job(token: str, request: Request, file: UploadFile = File(...),
     store.write_bytes(job_id, "input/spec_text.txt", spec_text.encode("utf-8"))
     store.write_json(job_id, "meta.json", {"job_id": job_id, "client_name": client_name.strip()[:100],
                                            "filename": (file.filename or "")[:200],
-                                           "created_at": datetime.now(timezone.utc).isoformat()})
+                                           "qc_enabled": qc_on, "created_at": datetime.now(timezone.utc).isoformat()})
     worker._status(store, job_id, "queued", "queued", 2)
     st["pool"].submit(worker.run_job, job_id, settings, store, st["cache"])
     return {"job_id": job_id}
