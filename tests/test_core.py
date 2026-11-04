@@ -295,10 +295,12 @@ def test_consumer_shape_response_is_parsed_and_verified():
     conf, _ = verify_match({"email": "LRubin@meridianbanker.com"}, ident)
     assert conf == MEDIUM
     m = map_identity(ident)
-    assert m == {"first_name": "Lee", "last_name": "Rubin", "phone": "333"}   # do-not-call number never used
+    assert m["first_name"] == "Lee" and m["phone"] == "333"   # do-not-call number never used
+    assert m["address_1"] == "1 Home St" and m["state"] == "MD" and m["job_title"] == "Manager"
     x = extra_columns(ident)
     assert x["dm_occupation"] == "Manager" and "DNC" in x["dm_phones"] and x["dm_home_zip"] == "1"
     assert not any("credit" in k or "age" in k or "income" in k for k in x)    # modelled personal data stays out
+    assert "credit" not in str(m).lower()
     # same email, but the identity is a different person than the email suggests -> not trusted
     other = dict(ident, firstName="Ryan", lastName="Moore")
     conf2, why = verify_match({"email": "paula.gillespie@bkfs.com"}, dict(other, emails=[{"email": "paula.gillespie@bkfs.com"}]))
@@ -314,3 +316,13 @@ def test_invalid_email_is_not_sent_and_not_delivered():
             raise AssertionError("must not be called")
     r = enrich_record(Boom(), {"email": "natalie.von döhren@lehman.com"}, datetime(2026, 1, 1))
     assert r.status == "no_lookup_key"
+
+
+def test_company_and_website_from_email_domain():
+    from core.domains import fill_from_domain
+    r, f = fill_from_domain({"email": "x@bkfs.com", "company": ""})
+    assert r["company"] == "Black Knight Financial Services" and r["website"] == "bkfs.com" and f == ["website", "company"]
+    r, f = fill_from_domain({"email": "x@unknownco.com", "company": ""})
+    assert r["company"] == "" and r["website"] == "unknownco.com"
+    assert fill_from_domain({"email": "x@gmail.com"})[1] == []
+    assert fill_from_domain({"email": "x@bkfs.com", "company": "Mine"})[0]["company"] == "Mine"   # never overwritten

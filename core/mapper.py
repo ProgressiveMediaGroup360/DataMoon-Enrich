@@ -3,8 +3,8 @@
 VERIFIED against real responses (Nov 2026): GetDataByEmail returns a CONSUMER-style identity
 {firstName, lastName, address, city, state, zip, emails[], phones[], bestMobile, occupation under data{}, ...}.
 It has no job title, company, industry, size, revenue, website or LinkedIn URL, so those template columns
-cannot be filled from it. Home address, age, income, credit, devices, vehicles and browsing data are
-deliberately NOT copied into the template.
+cannot be filled from it. The person's home address and occupation ARE copied (Address 1, City, State, Zip, Job Title,
+Job Level) by the owner's decision; age, income, credit, devices, vehicles and browsing data are not.
 
 FIELD_CANDIDATES below is the older guess based on the Business Person data dictionary; it is only used
 when an identity does not look like the consumer shape.
@@ -78,8 +78,12 @@ def extra_columns(ident: dict) -> dict:
 def map_identity(ident: dict) -> dict:
     """Return {internal field: value} for fields the identity actually provides."""
     if is_consumer(ident):
+        d = ident.get("data") or {}
         out = {"first_name": _name(ident.get("firstName")), "last_name": _name(ident.get("lastName")),
-               "phone": best_phone(ident)}
+               "phone": best_phone(ident), "address_1": str(ident.get("address") or "").strip(),
+               "city": str(ident.get("city") or "").strip(), "state": str(ident.get("state") or "").strip(),
+               "zip": str(ident.get("zip") or "").strip(), "job_title": str(d.get("occupationDetail") or "").strip(),
+               "job_level": str(d.get("occupationCategory") or "").strip()}
         return {k: v for k, v in out.items() if v}
     flat = flatten(ident)
     out = {}

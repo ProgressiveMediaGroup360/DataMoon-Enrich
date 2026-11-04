@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 import pandas as pd
 
+from .domains import fill_from_domain
 from .enrich import enrich_record
 from .normalise import contact_key, is_valid_email
 from .outputs import qc_report_frame, split_by_qc, template_candidates, template_frame
@@ -44,7 +45,9 @@ def enrich_all(records: list, client, cache, now, job_id: str = "", on_progress:
 def build_outputs(originals: list, results: list, qc_fn: Callable, store_raw_json: bool = True,
                   qc_enabled: bool = True) -> dict:
     """Return {"frames": {name: DataFrame}, "counts": {...}, "qc_note": str}."""
-    merged = [r.merged for r in results]
+    filled = [fill_from_domain(r.merged) for r in results]      # company/website from the email domain
+    merged = [f[0] for f in filled]
+    domain_fields = [f[1] for f in filled]
     candidates, dropped_no_email, dropped_dups = template_candidates(merged)
     rows = [to_template_row(c) for c in candidates]
 
@@ -64,15 +67,15 @@ def build_outputs(originals: list, results: list, qc_fn: Callable, store_raw_jso
     verdict = {contact_key(rec): q["overall"] for rec, q in ok + rejects + not_run}
 
     everything = []
-    for orig, r in zip(originals, results):
+    for orig, r, df in zip(originals, results, domain_fields):
         row = dict(orig)
-        m = r.merged
+        m = fill_from_domain(r.merged)[0]
         has_email = is_valid_email(str(m.get("email", "")).strip())
         overall = verdict.get(contact_key(m), "") if has_email else ""
         row.update({
             "dm_status": r.status, "dm_endpoint": r.endpoint, "dm_match_confidence": r.confidence,
             "dm_match_reasons": "; ".join(r.reasons), "dm_fields_changed": ", ".join(r.changed),
-            "dm_error": r.error, "qc_overall": overall,
+            "dm_error": r.error, "derived_from_email_domain": ", ".join(df), "qc_overall": overall,
             "template_status": ("no email - excluded" if not has_email else
                                 {PASS: "in template", REVIEW: "in template (review)", FLAG: "rejected by QC",
                                  NOT_RUN: "not checked (QC did not run)"}.get(overall, "duplicate - merged into another row")),
