@@ -10,7 +10,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from .enrich import enrich_record
-from .normalise import contact_key
+from .normalise import contact_key, is_valid_email
 from .outputs import qc_report_frame, split_by_qc, template_candidates, template_frame
 from .qc import FLAG, NOT_RUN, PASS, REVIEW
 from .template import TEMPLATE_COLUMNS, to_template_row
@@ -67,7 +67,7 @@ def build_outputs(originals: list, results: list, qc_fn: Callable, store_raw_jso
     for orig, r in zip(originals, results):
         row = dict(orig)
         m = r.merged
-        has_email = bool(str(m.get("email", "")).strip())
+        has_email = is_valid_email(str(m.get("email", "")).strip())
         overall = verdict.get(contact_key(m), "") if has_email else ""
         row.update({
             "dm_status": r.status, "dm_endpoint": r.endpoint, "dm_match_confidence": r.confidence,
@@ -78,6 +78,7 @@ def build_outputs(originals: list, results: list, qc_fn: Callable, store_raw_jso
                                  NOT_RUN: "not checked (QC did not run)"}.get(overall, "duplicate - merged into another row")),
         })
         row.update({f"enriched_{k}": v for k, v in m.items() if k in orig and v != orig.get(k)})
+        row.update(r.extra or {})
         if store_raw_json:
             row["dm_raw_json"] = json.dumps(r.identity) if r.identity else ""
         everything.append(row)

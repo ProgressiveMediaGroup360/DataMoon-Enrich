@@ -11,7 +11,7 @@ from pathlib import Path
 class EnrichmentCache:
     def __init__(self, root):
         Path(root).mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(str(Path(root) / "enrichment_cache.sqlite"), check_same_thread=False)
+        self._db = sqlite3.connect(str(Path(root) / "enrichment_cache_v2.sqlite"), check_same_thread=False)
         self._lock = threading.Lock()
         with self._lock:
             self._db.execute("PRAGMA journal_mode=WAL")
@@ -29,7 +29,8 @@ class EnrichmentCache:
         if not row:
             return None
         return {"at": datetime.fromisoformat(row[0]), "confidence": row[1] or "",
-                "mapped": json.loads(row[2]) if row[2] else {}}
+                "mapped": (json.loads(row[2]) if row[2] else {}).get("mapped", {}),
+                "extra": (json.loads(row[2]) if row[2] else {}).get("extra", {})}
 
     def put(self, result, now: datetime, job_id: str = "") -> None:
         if not result.contact_key:
@@ -38,5 +39,5 @@ class EnrichmentCache:
             self._db.execute(
                 "INSERT OR REPLACE INTO enrichment VALUES (?,?,?,?,?,?)",
                 (result.contact_key, now.isoformat(), result.status, result.confidence,
-                 json.dumps(result.mapped) if result.mapped else None, job_id))
+                 json.dumps({"mapped": result.mapped, "extra": result.extra}) if result.mapped or result.extra else None, job_id))
             self._db.commit()

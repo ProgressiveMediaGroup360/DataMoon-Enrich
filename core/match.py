@@ -68,6 +68,12 @@ def company_similar(a: str, b: str) -> bool:
     return a == b or (len(a) >= 4 and len(b) >= 4 and (a in b or b in a))
 
 
+def _name_in_email(email: str, first: str, last: str) -> bool:
+    local = re.sub(r"[^a-z]", "", email.split("@")[0])
+    first, last = first.replace(" ", ""), last.replace(" ", "")
+    return (len(last) >= 3 and last in local) or (len(first) >= 3 and first in local)
+
+
 def verify_match(rec: dict, ident: dict):
     """Return (confidence, reasons) for an identity vs. an input record."""
     flat = flatten(ident)
@@ -81,15 +87,18 @@ def verify_match(rec: dict, ident: dict):
         return CONFLICT, ["linkedin_url differs"]
 
     fn_r, ln_r = _fold(rec.get("first_name")), _fold(rec.get("last_name"))
-    fn_i, ln_i = _fold(pick(flat, ["first_name"])), _fold(pick(flat, ["last_name"]))
+    fn_i, ln_i = _fold(pick(flat, ["first_name", "firstname"])), _fold(pick(flat, ["last_name", "lastname"]))
     name_known = all([fn_r, ln_r, fn_i, ln_i])
     name_ok = name_known and fn_r == fn_i and ln_r == ln_i
     if name_known and not name_ok:
         return CONFLICT, ["name differs"]
 
     email_r = normalise_email(rec.get("email"))
-    email_exact = bool(email_r) and email_r in {
-        normalise_email(first_scalar(flat.get(k))) for k in ("work_email", "personal_email", "email")}
+    ident_emails = {normalise_email(first_scalar(flat.get(k))) for k in ("work_email", "personal_email", "email")}
+    for e in (ident.get("emails") or []) if isinstance(ident, dict) else []:   # consumer shape: emails[].email
+        if isinstance(e, dict):
+            ident_emails.add(normalise_email(e.get("email")))
+    email_exact = bool(email_r) and email_r in ident_emails
 
     co_ok = company_similar(rec.get("company"), pick(flat, ["company_name"]))
     if name_ok:
@@ -102,5 +111,9 @@ def verify_match(rec: dict, ident: dict):
             return MEDIUM, reasons
         return WEAK, reasons + ["company not confirmed"]
     if email_exact:
+        # The row has no name to compare, and Datamoon's identity graph sometimes ties an email to a
+        # different person in the same household. Sanity check: the part before the @ should resemble the name.
+        if fn_i and ln_i and not _name_in_email(email_r, fn_i, ln_i):
+            return WEAK, ["email matches but its name does not resemble the returned person"]
         return MEDIUM, ["email matches (name not available to compare)"]
     return WEAK, ["no verifiable match"]

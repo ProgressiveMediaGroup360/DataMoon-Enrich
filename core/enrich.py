@@ -3,9 +3,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
 
-from .mapper import map_identity, merge
+from .mapper import extra_columns, map_identity, merge
 from .match import CONFLICT, OVERWRITE_ALLOWED, STRONG, MEDIUM, WEAK, verify_match
-from .normalise import contact_key, normalise_email, normalise_linkedin, normalise_phone
+from .normalise import contact_key, is_valid_email, normalise_email, normalise_linkedin, normalise_phone
 
 MIN_AGE_DAYS = 90  # contacts enriched less than ~3 months ago are not re-enriched
 _RANK = {STRONG: 3, MEDIUM: 2, WEAK: 1, CONFLICT: 0}
@@ -22,6 +22,7 @@ class EnrichResult:
     changed: list = field(default_factory=list)
     mapped: dict = field(default_factory=dict)
     identity: Optional[dict] = None
+    extra: dict = field(default_factory=dict)   # parsed extra columns for the 'everything' file
     api_status: int = 0
     error: str = ""
     remaining: Optional[int] = None
@@ -68,7 +69,7 @@ def lookup_plan(rec: dict, linkedin=None):
     used yet: its parameters are unverified and it needs a street address + zip."""
     plan = []
     email = normalise_email(rec.get("email"))
-    if email:
+    if email and is_valid_email(email):
         plan.append(("GetDataByEmail", {"email": email}))
     phone = normalise_phone(rec.get("phone"))
     if phone:
@@ -100,11 +101,11 @@ def enrich_record(client, rec: dict, now: datetime, last_enriched_at: Optional[d
         mapped = cached.get("mapped") or {}
         merged, changed = merge(rec, mapped, conf in OVERWRITE_ALLOWED)
         return EnrichResult(key, "skipped_recent", merged, endpoint="cache", confidence=conf,
-                            reasons=["enriched within %d days" % min_age_days], changed=changed, mapped=mapped)
+                            reasons=["enriched within %d days" % min_age_days], changed=changed, mapped=mapped, extra=cached.get("extra") or {})
 
     plan = lookup_plan(rec, linkedin)
     if not plan:
-        return EnrichResult(key, "no_lookup_key", dict(rec), reasons=["no email, phone or LinkedIn URL"])
+        return EnrichResult(key, "no_lookup_key", dict(rec), reasons=["no valid email, phone or LinkedIn URL"])
 
     last_error, last_status = "", 0
     for endpoint, payload in plan:
@@ -119,7 +120,7 @@ def enrich_record(client, rec: dict, now: datetime, last_enriched_at: Optional[d
         mapped = map_identity(ident)
         merged, changed = merge(rec, mapped, conf in OVERWRITE_ALLOWED)
         return EnrichResult(key, "enriched", merged, endpoint=endpoint, confidence=conf, reasons=reasons,
-                            changed=changed, mapped=mapped, identity=ident,
+                            changed=changed, mapped=mapped, identity=ident, extra=extra_columns(ident),
                             api_status=res["status"], remaining=res["remaining"])
 
     if last_error:

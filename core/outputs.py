@@ -1,7 +1,7 @@
 """Build the two deliverables: the template file and the "everything" file."""
 import pandas as pd
 
-from .normalise import contact_key
+from .normalise import contact_key, is_valid_email
 from .qc import FLAG, NOT_RUN, PASS, REVIEW
 from .template import CONTENT_FIELDS, TEMPLATE_COLUMNS, to_template_row
 
@@ -18,7 +18,7 @@ def template_candidates(records: list):
     """
     best, order, no_email = {}, [], 0
     for rec in records:
-        if not str(rec.get("email", "")).strip():
+        if not is_valid_email(str(rec.get("email", "")).strip()):
             no_email += 1
             continue
         key = contact_key(rec)

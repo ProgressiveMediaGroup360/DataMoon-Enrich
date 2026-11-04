@@ -281,3 +281,36 @@ def test_qc_rejects_mismatched_response():
             return Resp()
     with pytest.raises(ValueError):
         qc.run_qc("http://x", "", "j", "spec", [], [{"a": 1}], session=S())
+
+
+def test_consumer_shape_response_is_parsed_and_verified():
+    from core.mapper import extra_columns, map_identity
+    from core.match import MEDIUM, WEAK, verify_match
+    ident = {"firstName": "LEE", "lastName": "Rubin", "address": "1 Home St", "city": "X", "state": "MD", "zip": "1",
+             "emails": [{"email": "lrubin@meridianbanker.com"}, {"email": "other@aol.com"}],
+             "phones": [{"phone": "111", "type": "mobile", "rankOrder": 1, "dnc": True},
+                        {"phone": "222", "type": "landline", "rankOrder": 1, "dnc": None},
+                        {"phone": "333", "type": "mobile", "rankOrder": 2, "dnc": None}],
+             "bestMobile": "111", "data": {"occupationDetail": "Manager", "creditRange": "B. 750-799", "age": 70}}
+    conf, _ = verify_match({"email": "LRubin@meridianbanker.com"}, ident)
+    assert conf == MEDIUM
+    m = map_identity(ident)
+    assert m == {"first_name": "Lee", "last_name": "Rubin", "phone": "333"}   # do-not-call number never used
+    x = extra_columns(ident)
+    assert x["dm_occupation"] == "Manager" and "DNC" in x["dm_phones"] and x["dm_home_zip"] == "1"
+    assert not any("credit" in k or "age" in k or "income" in k for k in x)    # modelled personal data stays out
+    # same email, but the identity is a different person than the email suggests -> not trusted
+    other = dict(ident, firstName="Ryan", lastName="Moore")
+    conf2, why = verify_match({"email": "paula.gillespie@bkfs.com"}, dict(other, emails=[{"email": "paula.gillespie@bkfs.com"}]))
+    assert conf2 == WEAK and "resemble" in why[0]
+
+
+def test_invalid_email_is_not_sent_and_not_delivered():
+    from datetime import datetime
+    from core.enrich import enrich_record
+
+    class Boom:
+        def call(self, *a, **k):
+            raise AssertionError("must not be called")
+    r = enrich_record(Boom(), {"email": "natalie.von döhren@lehman.com"}, datetime(2026, 1, 1))
+    assert r.status == "no_lookup_key"

@@ -76,7 +76,7 @@ def run_job(job_id: str, settings, store, cache, client_factory=None, qc_fn=None
 
         _status(store, job_id, "running", "publish", 82, "Running the quality check" if qc_on else "Building files", {"rows_in": n, **counts})
         out = build_outputs(
-            records, results, qc_enabled=qc_on,
+            records, results, qc_enabled=qc_on, store_raw_json=settings.include_raw_json,
             qc_fn=lambda rows: qc_fn(settings.qc_url, settings.qc_token, job_id, spec_text, TEMPLATE_COLUMNS, rows))
         for name, frame in out["frames"].items():
             store.write_bytes(job_id, f"outputs/{OUTPUT_FILES[name]}",

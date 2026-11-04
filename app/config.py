@@ -35,6 +35,8 @@ class Settings:
         # LinkedIn lookup is not in Datamoon's published API; set DATAMOON_LINKEDIN_ENDPOINT=off to disable it.
         self.linkedin_endpoint = os.environ.get("DATAMOON_LINKEDIN_ENDPOINT", "GetDataByLinkedin").strip()
         self.linkedin_params = os.environ.get("DATAMOON_LINKEDIN_PARAMS", "linkedin_url,linkedin,linkedinUrl,url")
+        # The raw Datamoon record contains modelled personal data (income, credit, devices, ...): off by default.
+        self.include_raw_json = os.environ.get("INCLUDE_RAW_JSON", "0").strip().lower() in ("1", "true", "yes", "on")
         self.workers = _int("WORKERS", 2)
 
     def problems(self):
